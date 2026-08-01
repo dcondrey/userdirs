@@ -11,24 +11,31 @@ use std::path::PathBuf;
 use windows_sys::core::GUID;
 use windows_sys::Win32::System::Com::CoTaskMemFree;
 use windows_sys::Win32::UI::Shell::{
-    FOLDERID_Desktop, FOLDERID_Documents, FOLDERID_Downloads, FOLDERID_Music, FOLDERID_Pictures,
-    FOLDERID_Public, FOLDERID_Templates, FOLDERID_Videos, SHGetKnownFolderPath,
-    KF_FLAG_DONT_VERIFY,
+    FOLDERID_Desktop, FOLDERID_Documents, FOLDERID_Downloads, FOLDERID_LocalAppData,
+    FOLDERID_Music, FOLDERID_Pictures, FOLDERID_Public, FOLDERID_Templates, FOLDERID_Videos,
+    SHGetKnownFolderPath, KF_FLAG_DONT_VERIFY,
 };
 
-fn folder_id(which: UserDir) -> Option<GUID> {
+/// The known folder backing each directory, plus any path appended beneath it.
+fn folder(which: UserDir) -> Option<(GUID, &'static [&'static str])> {
     Some(match which {
-        UserDir::Audio => FOLDERID_Music,
-        UserDir::Desktop => FOLDERID_Desktop,
-        UserDir::Document => FOLDERID_Documents,
-        UserDir::Download => FOLDERID_Downloads,
-        UserDir::Picture => FOLDERID_Pictures,
-        UserDir::Public => FOLDERID_Public,
-        UserDir::Template => FOLDERID_Templates,
-        UserDir::Video => FOLDERID_Videos,
-        // The Known Folder API exposes no per-user font folder, and Windows has
-        // no projects folder at all.
-        UserDir::Font | UserDir::Project => return None,
+        UserDir::Audio => (FOLDERID_Music, &[]),
+        UserDir::Desktop => (FOLDERID_Desktop, &[]),
+        UserDir::Document => (FOLDERID_Documents, &[]),
+        UserDir::Download => (FOLDERID_Downloads, &[]),
+        UserDir::Picture => (FOLDERID_Pictures, &[]),
+        UserDir::Public => (FOLDERID_Public, &[]),
+        UserDir::Template => (FOLDERID_Templates, &[]),
+        UserDir::Video => (FOLDERID_Videos, &[]),
+        // Windows 10 1803 added per-user font installation, which writes to
+        // `%LOCALAPPDATA%\Microsoft\Windows\Fonts` and needs no administrator
+        // rights. There is no known folder for it, so it is composed from Local
+        // AppData. Note this is deliberately *not* `FOLDERID_Fonts`: that one is
+        // documented as FIXED at `%windir%\Fonts`, the machine-wide store, which
+        // is not a user directory.
+        UserDir::Font => (FOLDERID_LocalAppData, &["Microsoft", "Windows", "Fonts"]),
+        // Windows has no projects folder.
+        UserDir::Project => return None,
     })
 }
 
@@ -74,7 +81,10 @@ fn known_folder(id: &GUID) -> Option<PathBuf> {
 }
 
 pub(crate) fn resolve(which: UserDir) -> Option<PathBuf> {
-    known_folder(&folder_id(which)?)
+    let (id, suffix) = folder(which)?;
+    let mut path = known_folder(&id)?;
+    path.extend(suffix);
+    Some(path)
 }
 
 pub(crate) fn resolve_all() -> Option<UserDirs> {
@@ -94,10 +104,25 @@ mod tests {
     use super::*;
 
     #[test]
-    fn font_dir_is_absent() {
+    fn project_dir_is_absent() {
         // `GUID` implements neither `PartialEq` nor `Debug`.
-        assert!(folder_id(UserDir::Font).is_none());
-        assert_eq!(resolve(UserDir::Font), None);
+        assert!(folder(UserDir::Project).is_none());
+        assert_eq!(resolve(UserDir::Project), None);
+    }
+
+    #[test]
+    fn font_dir_is_the_per_user_store_under_local_appdata() {
+        let font = resolve(UserDir::Font).expect("LocalAppData should resolve");
+        // %LOCALAPPDATA%\Microsoft\Windows\Fonts, the location a non-elevated
+        // font install writes to since Windows 10 1803.
+        assert!(font.ends_with(r"Microsoft\Windows\Fonts"), "{font:?}");
+
+        let local_appdata =
+            known_folder(&FOLDERID_LocalAppData).expect("LocalAppData should resolve");
+        assert!(font.starts_with(&local_appdata), "{font:?}");
+
+        // It must not be the machine-wide %windir%\Fonts store.
+        assert!(font.is_absolute(), "{font:?}");
     }
 
     #[test]

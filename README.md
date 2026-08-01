@@ -45,7 +45,7 @@ for. MSRV is 1.87.
 | `desktop_dir` | `XDG_DESKTOP_DIR` | `$HOME/Desktop` | `FOLDERID_Desktop` |
 | `document_dir` | `XDG_DOCUMENTS_DIR` | `$HOME/Documents` | `FOLDERID_Documents` |
 | `download_dir` | `XDG_DOWNLOAD_DIR` | `$HOME/Downloads` | `FOLDERID_Downloads` |
-| `font_dir` | `$XDG_DATA_HOME/fonts` | `$HOME/Library/Fonts` | — |
+| `font_dir` | `$XDG_DATA_HOME/fonts` | `$HOME/Library/Fonts` | `%LOCALAPPDATA%\Microsoft\Windows\Fonts` |
 | `picture_dir` | `XDG_PICTURES_DIR` | `$HOME/Pictures` | `FOLDERID_Pictures` |
 | `project_dir` | `XDG_PROJECTS_DIR` | — | — |
 | `public_dir` | `XDG_PUBLICSHARE_DIR` | `$HOME/Public` | `FOLDERID_Public` |
@@ -68,6 +68,11 @@ the nine it also provides. The differences, all deliberate:
 - **`project_dir()` is new.** `PROJECTS=Projects` ships in the `xdg-user-dirs`
   defaults, so `XDG_PROJECTS_DIR` is written to real `user-dirs.dirs` files;
   `dirs` never exposed it.
+- **`font_dir()` works on Windows.** `dirs` returns `None`. Windows 10 1803
+  added per-user font installation at `%LOCALAPPDATA%\Microsoft\Windows\Fonts`,
+  which is where a non-elevated install writes. Note this is not
+  `FOLDERID_Fonts` — Microsoft documents that one as FIXED at `%windir%\Fonts`,
+  the machine-wide store, which is not a user directory.
 - **A directory pointed at `$HOME` is disabled.** The `xdg-user-dirs` README
   says so outright: "To disable a directory, point it to the homedir."
   `userdirs` returns `None`; `dirs` hands back the home directory. Note this is

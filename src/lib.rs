@@ -20,7 +20,7 @@
 //! | [`desktop_dir`] | `XDG_DESKTOP_DIR` | `$HOME/Desktop` | `FOLDERID_Desktop` |
 //! | [`document_dir`] | `XDG_DOCUMENTS_DIR` | `$HOME/Documents` | `FOLDERID_Documents` |
 //! | [`download_dir`] | `XDG_DOWNLOAD_DIR` | `$HOME/Downloads` | `FOLDERID_Downloads` |
-//! | [`font_dir`] | `$XDG_DATA_HOME/fonts` | `$HOME/Library/Fonts` | — |
+//! | [`font_dir`] | `$XDG_DATA_HOME/fonts` | `$HOME/Library/Fonts` | `%LOCALAPPDATA%\Microsoft\Windows\Fonts` |
 //! | [`picture_dir`] | `XDG_PICTURES_DIR` | `$HOME/Pictures` | `FOLDERID_Pictures` |
 //! | [`project_dir`] | `XDG_PROJECTS_DIR` | — | — |
 //! | [`public_dir`] | `XDG_PUBLICSHARE_DIR` | `$HOME/Public` | `FOLDERID_Public` |
@@ -128,8 +128,11 @@ accessors! {
     download_dir => Download,
     /// Path to the user's font directory.
     ///
-    /// Returns [`None`] on Windows, which has no per-user font directory
-    /// exposed through the Known Folder API.
+    /// On Windows this is `%LOCALAPPDATA%\Microsoft\Windows\Fonts`, where a
+    /// non-elevated font install writes as of Windows 10 1803. It is
+    /// deliberately not `FOLDERID_Fonts`, which is documented as FIXED at
+    /// `%windir%\Fonts` and is the machine-wide store rather than a user
+    /// directory.
     font_dir => Font,
     /// Path to the user's picture directory.
     picture_dir => Picture,
@@ -138,7 +141,11 @@ accessors! {
     /// Returns [`None`] outside Linux/BSD. `XDG_PROJECTS_DIR` ships in the
     /// `xdg-user-dirs` defaults but has no macOS or Windows counterpart.
     project_dir => Project,
-    /// Path to the user's public share directory.
+    /// Path to the public share directory.
+    ///
+    /// Per-user on Unix (`$HOME/Public`), but machine-wide on Windows:
+    /// `FOLDERID_Public` is documented as FIXED at `%PUBLIC%`
+    /// (`%SystemDrive%\Users\Public`) and is shared by every account.
     public_dir => Public,
     /// Path to the user's template directory.
     ///
