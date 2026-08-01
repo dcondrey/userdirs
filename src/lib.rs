@@ -157,9 +157,14 @@ accessors! {
 
 /// All user directories, resolved once.
 ///
-/// On Linux the free functions each re-parse `user-dirs.dirs`. Constructing a
-/// `UserDirs` reads that file a single time, which matters if you need more
-/// than one directory.
+/// On Linux the free functions each re-read and re-parse `user-dirs.dirs`.
+/// Constructing a `UserDirs` does that once, so fetching *n* directories costs
+/// one file read instead of *n*.
+///
+/// That is the whole of the difference worth caring about: reading the file
+/// costs roughly fourteen times what parsing it does, so the saving is in the
+/// syscalls, not the parsing. Reach for this when you need more than one
+/// directory; a single lookup gains nothing from it.
 ///
 /// Deliberately not `Default`: an all-`None` `UserDirs` is indistinguishable
 /// from a successfully resolved one at the type level, so the only way to build
