@@ -1,0 +1,16 @@
+[package]
+name = "userdirs"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.87"
+license = "MIT OR Apache-2.0"
+description = "Cross-platform paths to the user's media and personal directories: downloads, documents, pictures, music, videos, desktop, fonts, templates, projects. No copyleft dependencies."
+keywords = ["xdg", "downloads", "documents", "userdirs", "path"]
+categories = ["filesystem", "os"]
+readme = "README.md"
+repository = "https://github.com/dcondrey/userdirs"
+documentation = "https://docs.rs/userdirs"
+
+[target.'cfg(windows)'.dependencies.windows-sys]
+version = "0.61"
+features = ["Win32_Foundation", "Win32_System_Com", "Win32_UI_Shell"]
