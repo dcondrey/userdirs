@@ -42,6 +42,13 @@ fn folder(which: UserDir) -> Option<(GUID, &'static [&'static str])> {
 fn known_folder(id: &GUID) -> Option<PathBuf> {
     let mut path_ptr: *mut u16 = std::ptr::null_mut();
 
+    // `KF_FLAG_DONT_VERIFY` returns the path even when the folder is missing or
+    // inaccessible. `dirs-sys` passes 0 instead, which makes the shell verify
+    // and fail, so `download_dir()` there is `None` on Windows for a folder that
+    // does not exist while macOS still returns a path. Not verifying keeps the
+    // three platforms consistent with this crate's documented contract that a
+    // returned path is not guaranteed to exist.
+    //
     // SAFETY: `id` is a valid GUID reference and `path_ptr` is a valid out
     // pointer. On success the callee allocates a NUL-terminated wide string
     // that we must release with `CoTaskMemFree`.
@@ -54,8 +61,9 @@ fn known_folder(id: &GUID) -> Option<PathBuf> {
         )
     };
 
-    // A non-zero HRESULT can still hand back an allocation, so free
-    // unconditionally once we know the pointer is non-null.
+    // The documentation is explicit that the caller must free the buffer
+    // "whether SHGetKnownFolderPath succeeds or not", so the free below is not
+    // conditional on the HRESULT.
     if path_ptr.is_null() {
         return None;
     }

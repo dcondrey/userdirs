@@ -11,6 +11,15 @@ readme = "README.md"
 repository = "https://github.com/dcondrey/userdirs"
 documentation = "https://docs.rs/userdirs"
 
+# docs.rs builds on Linux by default. Building the other targets too lets a
+# reader switch platforms and see the Windows and macOS behaviour rendered.
+[package.metadata.docs.rs]
+targets = [
+    "x86_64-unknown-linux-gnu",
+    "x86_64-pc-windows-msvc",
+    "x86_64-apple-darwin",
+]
+
 [target.'cfg(windows)'.dependencies.windows-sys]
 version = "0.61"
 features = ["Win32_Foundation", "Win32_System_Com", "Win32_UI_Shell"]
