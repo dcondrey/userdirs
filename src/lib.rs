@@ -194,6 +194,23 @@ impl UserDirs {
 pub(crate) const COUNT: usize = 10;
 
 impl UserDir {
+    /// Every directory this crate knows about.
+    ///
+    /// Returns an iterator rather than an array so that adding a variant stays
+    /// a non-breaking change; the count is not part of the signature.
+    ///
+    /// ```
+    /// # use userdirs::{UserDir, UserDirs};
+    /// if let Some(dirs) = UserDirs::new() {
+    ///     for which in UserDir::all() {
+    ///         println!("{which:?}: {:?}", dirs.get(which));
+    ///     }
+    /// }
+    /// ```
+    pub fn all() -> impl Iterator<Item = UserDir> {
+        Self::ALL.into_iter()
+    }
+
     pub(crate) const ALL: [UserDir; COUNT] = [
         UserDir::Audio,
         UserDir::Desktop,
@@ -223,12 +240,150 @@ impl UserDir {
     }
 }
 
+/// A process-wide cached snapshot of every user directory.
+///
+/// Resolving costs a `user-dirs.dirs` read on Linux and one shell call per
+/// directory on Windows. Where those paths are consulted repeatedly — a
+/// long-running process, a hot path, a file dialog opened over and over — this
+/// pays for the lookup once.
+///
+/// # This is opt-in twice, deliberately
+///
+/// Turning on the `cache` feature adds this module and changes nothing else.
+/// The free functions and [`UserDirs::new`] keep reading from disk on every
+/// call. That is on purpose: Cargo unifies features across a dependency graph,
+/// so if enabling `cache` silently rewired [`download_dir`], any unrelated
+/// crate could switch *your* lookups to cached values without you knowing.
+/// Staleness has to be something you ask for at the call site.
+///
+/// # Staleness
+///
+/// The snapshot is taken once and reused. `xdg-user-dirs-update` can rewrite
+/// `user-dirs.dirs` while the process runs, and a desktop environment can
+/// relocate a folder at any time, so a long-lived cache will eventually be
+/// wrong. Call [`cache::reload`] after any point where the directories may
+/// have moved. GLib takes the same approach with
+/// `g_reload_user_special_dirs_cache()`.
+#[cfg(feature = "cache")]
+pub mod cache {
+    use super::UserDirs;
+    use std::sync::{Arc, RwLock};
+
+    /// `None` means "not yet resolved"; `Some(None)` means "resolved, and there
+    /// are no directories", which must not trigger a re-resolve on every call.
+    static CACHE: RwLock<Option<Option<Arc<UserDirs>>>> = RwLock::new(None);
+
+    /// The cached snapshot, resolving it on first use.
+    ///
+    /// Returns [`None`] under the same conditions as [`UserDirs::new`]: the
+    /// home directory could not be determined.
+    pub fn user_dirs() -> Option<Arc<UserDirs>> {
+        // A poisoned lock is not a reason to fail: fall through and resolve
+        // uncached rather than panicking in a path-lookup function.
+        if let Ok(guard) = CACHE.read() {
+            if let Some(resolved) = guard.as_ref() {
+                return resolved.clone();
+            }
+        }
+
+        let resolved = UserDirs::new().map(Arc::new);
+
+        if let Ok(mut guard) = CACHE.write() {
+            // A racing thread may have filled this already. Both values are
+            // equally valid, so last writer wins is fine.
+            *guard = Some(resolved.clone());
+        }
+
+        resolved
+    }
+
+    /// Discard the snapshot so the next [`user_dirs`] call resolves again.
+    ///
+    /// Callers already holding an [`Arc`] keep the old snapshot; this only
+    /// affects subsequent lookups.
+    pub fn reload() {
+        if let Ok(mut guard) = CACHE.write() {
+            *guard = None;
+        }
+    }
+}
+
 pub(crate) fn home() -> Option<PathBuf> {
     // Un-deprecated and corrected in Rust 1.85; this is why the crate needs no
     // `libc` dependency for a `getpwuid_r` fallback. It prefers `$HOME` when
     // set, so paths expand against the same home directory the rest of the
     // desktop resolves `user-dirs.dirs` against.
     std::env::home_dir().filter(|h| !h.as_os_str().is_empty())
+}
+
+#[cfg(all(test, feature = "cache"))]
+mod cache_tests {
+    use super::*;
+    use std::sync::Arc;
+
+    #[test]
+    fn snapshot_is_reused_until_reloaded() {
+        // Serialised by hand: the cache is process-wide, so these steps cannot
+        // be split into separate #[test] fns without racing each other.
+        cache::reload();
+
+        let Some(first) = cache::user_dirs() else {
+            // No home directory on this machine; nothing to assert.
+            return;
+        };
+        let second = cache::user_dirs().expect("still resolvable");
+
+        // Same allocation, so the second call did no work.
+        assert!(
+            Arc::ptr_eq(&first, &second),
+            "second lookup should reuse the snapshot"
+        );
+
+        cache::reload();
+        let third = cache::user_dirs().expect("still resolvable");
+        assert!(
+            !Arc::ptr_eq(&first, &third),
+            "reload should force a fresh resolve"
+        );
+
+        // Invalidation must not change the answer, only recompute it.
+        for which in UserDir::ALL {
+            assert_eq!(first.get(which), third.get(which), "{which:?}");
+        }
+    }
+
+    /// Run with `cargo test --all-features --release -- --ignored --nocapture cache_cost`.
+    #[test]
+    #[ignore = "timing only; run with --release"]
+    fn cache_cost() {
+        cache::reload();
+        let _ = cache::user_dirs();
+
+        let iters = 200_000;
+        let start = std::time::Instant::now();
+        for _ in 0..iters {
+            std::hint::black_box(cache::user_dirs());
+        }
+        println!("cache::user_dirs() (warm)  {:?}", start.elapsed() / iters);
+
+        let start = std::time::Instant::now();
+        for _ in 0..iters {
+            std::hint::black_box(UserDirs::new());
+        }
+        println!("UserDirs::new() (uncached) {:?}", start.elapsed() / iters);
+    }
+
+    #[test]
+    fn cached_values_match_the_uncached_api() {
+        cache::reload();
+        let Some(cached) = cache::user_dirs() else {
+            return;
+        };
+        let direct = UserDirs::new().expect("resolvable");
+        for which in UserDir::ALL {
+            assert_eq!(cached.get(which), direct.get(which), "{which:?}");
+        }
+    }
 }
 
 #[cfg(test)]

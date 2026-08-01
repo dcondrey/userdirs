@@ -11,21 +11,28 @@
 )]
 
 use crate::{home, UserDir, UserDirs};
+use std::borrow::Cow;
+use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 
-fn key_for(which: UserDir) -> Option<&'static str> {
-    Some(match which {
-        UserDir::Audio => "MUSIC",
-        UserDir::Desktop => "DESKTOP",
-        UserDir::Document => "DOCUMENTS",
-        UserDir::Download => "DOWNLOAD",
-        UserDir::Picture => "PICTURES",
-        UserDir::Project => "PROJECTS",
-        UserDir::Public => "PUBLICSHARE",
-        UserDir::Template => "TEMPLATES",
-        UserDir::Video => "VIDEOS",
-        // Not part of user-dirs.dirs; derived from XDG_DATA_HOME instead.
-        UserDir::Font => return None,
+/// Map a `user-dirs.dirs` key to its directory.
+///
+/// Keyed by the string rather than scanning [`UserDir::ALL`] and comparing each
+/// name, so a line costs one match instead of up to ten string compares.
+/// [`UserDir::Font`] is absent by design: it is derived from `XDG_DATA_HOME`
+/// rather than stored in the file.
+fn user_dir_for_key(key: &str) -> Option<UserDir> {
+    Some(match key {
+        "MUSIC" => UserDir::Audio,
+        "DESKTOP" => UserDir::Desktop,
+        "DOCUMENTS" => UserDir::Document,
+        "DOWNLOAD" => UserDir::Download,
+        "PICTURES" => UserDir::Picture,
+        "PROJECTS" => UserDir::Project,
+        "PUBLICSHARE" => UserDir::Public,
+        "TEMPLATES" => UserDir::Template,
+        "VIDEOS" => UserDir::Video,
+        _ => return None,
     })
 }
 
@@ -87,21 +94,24 @@ fn trim(mut bytes: &[u8]) -> &[u8] {
     bytes
 }
 
-/// Build a path from raw bytes.
+/// View raw bytes as an `OsStr`.
 ///
 /// Unix paths are arbitrary bytes, not UTF-8, so the parser must never require
-/// valid UTF-8 to produce a path.
+/// valid UTF-8 to produce a path. Borrowing rather than returning an owned
+/// `PathBuf` lets the caller build the final path in a single allocation.
 #[cfg(unix)]
-fn path_from_bytes(bytes: &[u8]) -> PathBuf {
+fn os_str_from_bytes(bytes: &[u8]) -> Cow<'_, OsStr> {
     use std::os::unix::ffi::OsStrExt;
-    PathBuf::from(std::ffi::OsStr::from_bytes(bytes))
+    Cow::Borrowed(OsStr::from_bytes(bytes))
 }
 
 /// Non-Unix fallback. XDG lookup never runs on these targets; this exists only
 /// so the parser and its tests still compile there.
 #[cfg(not(unix))]
-fn path_from_bytes(bytes: &[u8]) -> PathBuf {
-    PathBuf::from(String::from_utf8_lossy(bytes).into_owned())
+fn os_str_from_bytes(bytes: &[u8]) -> Cow<'_, OsStr> {
+    Cow::Owned(std::ffi::OsString::from(
+        String::from_utf8_lossy(bytes).into_owned(),
+    ))
 }
 
 /// Parse the body of a `user-dirs.dirs` file.
@@ -133,7 +143,7 @@ pub(crate) fn parse(contents: &[u8], home: &Path) -> [Option<PathBuf>; crate::CO
             continue;
         };
 
-        let Some(which) = UserDir::ALL.into_iter().find(|d| key_for(*d) == Some(key)) else {
+        let Some(which) = user_dir_for_key(key) else {
             continue;
         };
 
@@ -162,10 +172,13 @@ pub(crate) fn parse(contents: &[u8], home: &Path) -> [Option<PathBuf>; crate::CO
             continue;
         };
 
+        // One allocation: `join` and `from` each build the final buffer
+        // directly from the borrowed value.
+        let value = os_str_from_bytes(&value);
         let path = if relative {
-            home.join(path_from_bytes(&value))
+            home.join(&*value)
         } else {
-            path_from_bytes(&value)
+            PathBuf::from(&*value)
         };
 
         // A directory pointed at the home directory is disabled. The
@@ -184,13 +197,24 @@ pub(crate) fn parse(contents: &[u8], home: &Path) -> [Option<PathBuf>; crate::CO
 ///
 /// Returns `None` if the quote is never closed, which the reference
 /// implementation also treats as a malformed entry to be skipped.
-fn unquote(bytes: &[u8]) -> Option<Vec<u8>> {
+fn unquote(bytes: &[u8]) -> Option<Cow<'_, [u8]>> {
+    // Fast path. Escapes are vanishingly rare in a real `user-dirs.dirs`, so
+    // scan for the closing quote first and hand back a borrow of the original
+    // buffer when nothing needs rewriting.
+    let escape = bytes.iter().position(|b| matches!(b, b'"' | b'\\'))?;
+    if bytes[escape] == b'"' {
+        return Some(Cow::Borrowed(&bytes[..escape]));
+    }
+
+    // Slow path, entered only at the first backslash. Everything before it is
+    // already known to be literal.
     let mut out = Vec::with_capacity(bytes.len());
-    let mut iter = bytes.iter().copied();
+    out.extend_from_slice(&bytes[..escape]);
+    let mut iter = bytes[escape..].iter().copied();
 
     while let Some(byte) = iter.next() {
         match byte {
-            b'"' => return Some(out),
+            b'"' => return Some(Cow::Owned(out)),
             // A backslash escapes the next byte, whatever it is.
             b'\\' => out.push(iter.next()?),
             _ => out.push(byte),
@@ -600,5 +624,63 @@ mod tests {
         // and setting it here would race other tests.
         let dir = super::font_dir(&home());
         assert!(dir.ends_with("fonts"), "{dir:?}");
+    }
+}
+
+/// Timing harness for the parser, kept in the tree so changes to it can be
+/// justified with numbers rather than intuition.
+///
+/// Run with `cargo test --release -- --ignored --nocapture timings`. Release is
+/// not optional: an unoptimized build reports parse costs roughly six times
+/// higher and will point at the wrong bottleneck.
+#[cfg(test)]
+mod bench {
+    use super::*;
+
+    /// A `user-dirs.dirs` as `xdg-user-dirs-update` actually writes it.
+    const REALISTIC: &str = concat!(
+        "# This file is written by xdg-user-dirs-update\n",
+        "# If you want to change or add directories, just edit the line you're\n",
+        "# interested in. All local changes will be retained on the next run.\n",
+        "XDG_DESKTOP_DIR=\"$HOME/Desktop\"\n",
+        "XDG_DOWNLOAD_DIR=\"$HOME/Downloads\"\n",
+        "XDG_TEMPLATES_DIR=\"$HOME/Templates\"\n",
+        "XDG_PUBLICSHARE_DIR=\"$HOME/Public\"\n",
+        "XDG_DOCUMENTS_DIR=\"$HOME/Documents\"\n",
+        "XDG_MUSIC_DIR=\"$HOME/Music\"\n",
+        "XDG_PICTURES_DIR=\"$HOME/Pictures\"\n",
+        "XDG_VIDEOS_DIR=\"$HOME/Videos\"\n",
+    );
+
+    fn time<F: Fn()>(label: &str, iters: u32, f: F) {
+        f();
+        let start = std::time::Instant::now();
+        for _ in 0..iters {
+            f();
+        }
+        println!("{label:<34} {:?} per call", start.elapsed() / iters);
+    }
+
+    #[test]
+    #[ignore = "timing only; run with --release"]
+    fn timings() {
+        let home = PathBuf::from("/home/alice");
+        let dir = std::env::temp_dir().join("userdirs-bench");
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("user-dirs.dirs");
+        std::fs::write(&file, REALISTIC).unwrap();
+
+        println!("file is {} bytes", REALISTIC.len());
+        time("parse() only", 200_000, || {
+            std::hint::black_box(parse(std::hint::black_box(REALISTIC.as_bytes()), &home));
+        });
+        time("read_user_dirs_file() (read+parse)", 20_000, || {
+            std::hint::black_box(read_user_dirs_file(&file, &home));
+        });
+        time("crate::home()", 200_000, || {
+            std::hint::black_box(crate::home());
+        });
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

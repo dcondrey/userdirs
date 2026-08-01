@@ -11,9 +11,17 @@ readme = "README.md"
 repository = "https://github.com/dcondrey/userdirs"
 documentation = "https://docs.rs/userdirs"
 
+[features]
+# Adds `userdirs::cache`, a process-wide memoised snapshot. Opt-in at the call
+# site as well as here: enabling the feature adds an API, it never changes what
+# the free functions return. See the module docs for why.
+cache = []
+
 # docs.rs builds on Linux by default. Building the other targets too lets a
 # reader switch platforms and see the Windows and macOS behaviour rendered.
 [package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
 targets = [
     "x86_64-unknown-linux-gnu",
     "x86_64-pc-windows-msvc",

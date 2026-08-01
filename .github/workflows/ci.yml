@@ -24,6 +24,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo test --all-targets
       - run: cargo test --doc
+      # The `cache` feature adds a process-wide static, so it needs exercising
+      # on every OS, not just the one the default build covers.
+      - run: cargo test --all-features --all-targets
 
   # Linux runners ship a real user-dirs.dirs only if xdg-user-dirs has run.
   # Generate one so the XDG resolution path is exercised end to end, not just
@@ -47,7 +50,8 @@ jobs:
           components: rustfmt, clippy
       - run: cargo fmt --check
       - run: cargo clippy --all-targets -- -D warnings
-      - run: cargo doc --no-deps
+      - run: cargo clippy --all-features --all-targets -- -D warnings
+      - run: cargo doc --all-features --no-deps
 
   # Cross-compile the platform modules that this runner cannot execute, so a
   # break in one is caught by every leg rather than only its own.

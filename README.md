@@ -26,6 +26,37 @@ Linux-only.
 This crate is the missing piece, not a `dirs` replacement. Pair it with
 `etcetera` and you have the full set with no copyleft in the graph.
 
+## Caching (optional)
+
+Resolving costs a `user-dirs.dirs` read on Linux and one shell call per
+directory on Windows. If you consult these paths repeatedly, enable the `cache`
+feature:
+
+```toml
+userdirs = { version = "0.1", features = ["cache"] }
+```
+
+```rust
+let dirs = userdirs::cache::user_dirs().unwrap();
+println!("{}", dirs.download_dir().unwrap().display());
+
+userdirs::cache::reload(); // after the directories may have moved
+```
+
+Measured on macOS: 8 ns cached against 470 ns uncached. On Linux, where the
+uncached path includes the file read, the gap is roughly three orders of
+magnitude.
+
+The feature only *adds* `userdirs::cache`; it never changes what the free
+functions return. Cargo unifies features across a dependency graph, so if
+enabling `cache` silently rewired `download_dir()`, an unrelated crate could
+switch your lookups to cached values without your knowledge. Staleness is
+something you ask for at the call site.
+
+Snapshots do go stale — `xdg-user-dirs-update` can rewrite the file while you
+run — so call `reload()` at any point the directories may have moved. GLib takes
+the same approach with `g_reload_user_special_dirs_cache()`.
+
 ## Dependencies
 
 | target | dependencies |
