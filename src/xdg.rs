@@ -36,8 +36,28 @@ fn key_for(which: UserDir) -> Option<&'static str> {
 /// is not worth testing.
 fn base_dir(var: Option<std::ffi::OsString>, home: &Path, fallback: &str) -> PathBuf {
     match var.filter(|v| !v.is_empty()) {
-        Some(v) if Path::new(&v).is_absolute() => PathBuf::from(v),
+        Some(v) if is_absolute(&v) => PathBuf::from(v),
         _ => home.join(fallback),
+    }
+}
+
+/// Whether an XDG environment value is an absolute path.
+///
+/// The spec's definition is "begins with `/`", which is *not* what
+/// [`Path::is_absolute`] means: on Windows that additionally requires a drive
+/// letter or UNC prefix, so a perfectly valid `XDG_CONFIG_HOME` would be
+/// rejected as relative. The rule is applied directly to the bytes instead,
+/// matching how the parser tests absolute paths, so the module behaves the same
+/// wherever it is compiled.
+fn is_absolute(value: &std::ffi::OsStr) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::ffi::OsStrExt;
+        value.as_bytes().first() == Some(&b'/')
+    }
+    #[cfg(not(unix))]
+    {
+        value.to_string_lossy().starts_with('/')
     }
 }
 
@@ -454,6 +474,21 @@ mod tests {
             get("XDG_DOWNLOAD_DIR=\"$HOMEwork\"\n", UserDir::Download),
             None
         );
+    }
+
+    #[test]
+    fn absolute_means_leading_slash_on_every_platform() {
+        use std::ffi::OsStr;
+
+        // `Path::is_absolute` would answer `false` here on Windows, which would
+        // discard a valid XDG value as relative. The spec's rule is purely
+        // "begins with `/`".
+        assert!(is_absolute(OsStr::new("/xdg/config")));
+        assert!(is_absolute(OsStr::new("/")));
+        assert!(!is_absolute(OsStr::new("relative/config")));
+        assert!(!is_absolute(OsStr::new("")));
+        // A Windows-style path is not absolute by XDG's definition.
+        assert!(!is_absolute(OsStr::new("C:\\xdg")));
     }
 
     #[test]
