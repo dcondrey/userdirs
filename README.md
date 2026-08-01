@@ -56,6 +56,10 @@ Every function returns `None` where the platform has no such concept, or where
 the home directory cannot be determined. Returned paths are not guaranteed to
 exist on disk.
 
+Targets that are neither Unix nor Windows — `wasm32-unknown-unknown` in
+particular — compile and return `None` from every function. Depending on this
+crate will not break a build matrix that includes one.
+
 ## Differences from `dirs`
 
 Function names and return types match `dirs`, so migration is mechanical for

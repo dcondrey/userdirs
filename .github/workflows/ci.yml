@@ -59,6 +59,9 @@ jobs:
           - x86_64-pc-windows-msvc
           - x86_64-apple-darwin
           - x86_64-unknown-freebsd
+          # Neither Unix nor Windows: exercises the fallback module, without
+          # which the crate does not build at all here.
+          - wasm32-unknown-unknown
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable

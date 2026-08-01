@@ -31,6 +31,10 @@
 //! when the home directory cannot be determined. A returned path is **not**
 //! guaranteed to exist on disk.
 //!
+//! Targets that are neither Unix nor Windows — `wasm32-unknown-unknown` in
+//! particular — compile and return [`None`] from every function, so depending
+//! on this crate does not break a build matrix that includes one.
+//!
 //! On Linux the XDG keys are read from `${XDG_CONFIG_HOME:-$HOME/.config}/user-dirs.dirs`.
 //! Each call re-reads that file; use [`UserDirs::new`] to read it once and reuse
 //! the result.
@@ -42,6 +46,11 @@ use std::path::PathBuf;
 
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 mod apple;
+// Anything that is neither Unix nor Windows, so the crate stays buildable on
+// wasm and other exotic targets instead of breaking every dependent that has
+// one in its matrix.
+#[cfg(not(any(unix, windows)))]
+mod unsupported;
 #[cfg(windows)]
 mod windows;
 
@@ -52,6 +61,8 @@ mod xdg;
 
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 use apple as imp;
+#[cfg(not(any(unix, windows)))]
+use unsupported as imp;
 #[cfg(windows)]
 use windows as imp;
 #[cfg(all(unix, not(any(target_os = "macos", target_os = "ios"))))]
