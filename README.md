@@ -1,13 +1,14 @@
-<img src="https://raw.githubusercontent.com/dcondrey/userdirs/main/assets/logo.png" alt="" align="right" height="150">
+<!-- repo-header:start -->
+<img src="https://raw.githubusercontent.com/dcondrey/userdirs/main/assets/logo.png" alt="userdirs logo" width="120" align="left">
 
-# userdirs
+<h1>userdirs</h1>
 
-Cross-platform paths to the directories a *person* keeps files in — Downloads,
-Documents, Pictures, Music, Videos, Desktop, Fonts, Templates, Public, Projects.
+<p><strong>Cross-platform paths to the user&#x27;s media and personal directories. No copyleft dependencies.</strong></p>
 
-[![crates.io](https://img.shields.io/crates/v/userdirs.svg)](https://crates.io/crates/userdirs)
-[![docs.rs](https://docs.rs/userdirs/badge.svg)](https://docs.rs/userdirs)
-[![CI](https://github.com/dcondrey/userdirs/actions/workflows/ci.yml/badge.svg)](https://github.com/dcondrey/userdirs/actions/workflows/ci.yml)
+<br clear="left">
+
+[![CI](https://img.shields.io/github/actions/workflow/status/dcondrey/userdirs/ci.yml?style=flat-square&labelColor=20232a&branch=main&label=CI)](https://github.com/dcondrey/userdirs/actions/workflows/ci.yml) [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/14408/badge)](https://www.bestpractices.dev/projects/14408) [![License](https://img.shields.io/github/license/dcondrey/userdirs?style=flat-square&labelColor=20232a&color=007ec6&label=license)](https://github.com/dcondrey/userdirs/blob/main/LICENSE-APACHE) [![GitHub Sponsors](https://img.shields.io/badge/GitHub%20Sponsors-Sponsor-EA4AAA?style=flat-square&labelColor=20232a)](https://github.com/sponsors/dcondrey) [![crates.io](https://img.shields.io/crates/v/userdirs.svg?style=flat-square&labelColor=20232a&color=007ec6)](https://crates.io/crates/userdirs) [![docs.rs](https://img.shields.io/docsrs/userdirs?style=flat-square&labelColor=20232a&color=007ec6)](https://docs.rs/userdirs)
+<!-- repo-header:end -->
 
 ```rust
 if let Some(dir) = userdirs::download_dir() {
